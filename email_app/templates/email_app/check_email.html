@@ -1,0 +1,36 @@
+{% load bootstrap4 %}
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Проверка подлинности письма</title>
+    {% bootstrap_css %}
+    {% bootstrap_javascript %}
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center my-4">Проверка подлинности письма</h1>
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {% bootstrap_form form %}
+            <button type="submit" class="btn btn-primary">Проверить письмо</button>
+        </form>
+
+        {% if result is not None %}
+            <div class="mt-5">
+                {% if result %}
+                    <div class="alert alert-success">
+                        Подлинность письма подтверждена.
+                    </div>
+                {% else %}
+                    <div class="alert alert-danger">
+                        Подлинность письма не подтверждена.
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>
