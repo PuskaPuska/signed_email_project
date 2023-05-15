@@ -1,8 +1,12 @@
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import smtplib
 import imaplib
+from email.mime.application import MIMEApplication
 from email import message_from_bytes
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
+import base64
 
 # Загрузка сертификата и закрытого ключа
 
@@ -33,7 +37,7 @@ def send_signed_email(smtp_server, smtp_port, username, password, to, subject, b
         cert, private_key, key_password)
 
     # Подписание письма
-    signature = sign_message(body, private_key)
+    signature = base64.b64encode(sign_message(body, private_key))
 
     # Создание письма
     msg = MIMEMultipart()
@@ -43,7 +47,7 @@ def send_signed_email(smtp_server, smtp_port, username, password, to, subject, b
 
     msg.attach(MIMEText(body, "plain"))
     msg.attach(MIMEText(cert.decode(), "plain"))
-    msg.attach(MIMEText(signature, "plain"))
+    msg.attach(MIMEText(signature.decode(), "plain"))
 
     # Отправка письма
     with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
@@ -96,15 +100,59 @@ def read_emails(imap_server, imap_port, username, password, cert):
             _, msg_data = server.fetch(message_numbers[-1], "(RFC822)")
             msg = message_from_bytes(msg_data[0][1])
 
-            # Извлечение компонентов письма
-            message_body = msg.get_payload
-            message_body = msg.get_payload()[0].get_payload()
-            message_cert = msg.get_payload()[1].get_payload()
-            message_signature = msg.get_payload()[2].get_payload()
+            # Проверка, является ли письмо многокомпонентным
+            if msg.is_multipart():
+                message_parts = []
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        raw_payload = part.get_payload(decode=True)
+                        if raw_payload is not None:
+                            message_parts.append(raw_payload.decode())
+            else:
+                raw_payload = msg.get_payload(decode=True)
+                if raw_payload is not None:
+                    message_parts = raw_payload.decode().split('\n\n')
+
+            if len(message_parts) < 3:
+                print("The message format is invalid.")
+                return False
+
+            message_body = message_parts[0]
+            message_cert = message_parts[1]
+            message_signature = base64.b64decode(message_parts[2])
 
             # Проверка подлинности подписи
             is_valid_signature = verify_signature(
-                message_body, message_signature.encode(), public_key)
+                message_body, message_signature, public_key)
             return is_valid_signature
         else:
             return False
+
+
+
+
+# Обработчик Django запросов
+
+
+def send_email(request):
+    if request.method == 'POST':
+        form = SendEmailForm(request.POST, request.FILES)
+
+        if form.is_valid():
+            send_signed_email(
+                form.cleaned_data['smtp_server'],
+                form.cleaned_data['smtp_port'],
+                form.cleaned_data['username'],
+                form.cleaned_data['password'],
+                form.cleaned_data['recipient'],
+                form.cleaned_data['subject'],
+                form.cleaned_data['body'],
+                form.cleaned_data['cert'].read(),
+                form.cleaned_data['private_key'].read(),
+                form.cleaned_data['key_password'],
+            )
+            return HttpResponse('Email sent successfully')
+    else:
+        form = SendEmailForm()
+
+    return render(request, 'email_app/send_email.html', {'form': form})
